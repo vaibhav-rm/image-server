@@ -22,7 +22,7 @@ const spaceGrotesk = Space_Grotesk({
 
 export const metadata: Metadata = {
   title: "Dih Pics",
-  description: "A Futuristic Memory Vault for Friends",
+  description: "A place where gang's memories are stored",
 };
 
 export default function RootLayout({

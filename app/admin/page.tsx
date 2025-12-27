@@ -28,13 +28,13 @@ export default function AdminPage() {
     }
 
     const checkAdmin = async () => {
-        // Ideally fetch user doc and check role
-        // For MVP, if you are in 'users' collection, you are trusted enough to see this page for now
-        // OR better, let's just allow the first user (you).
-        // For now, I'll allow any "approved" user to see the admin panel to simplify management for the friend group
-        // "Friends over followers" -> "Friends are admins" (or at least can vote)
+        if (user.email === "rathodvaibhav401@gmail.com") {
+            setIsAdmin(true);
+        } else {
+            console.warn("Unauthorized admin access attempt:", user.email);
+            router.push("/home");
+        }
         setCheckingAdmin(false);
-        setIsAdmin(true);
     };
 
     checkAdmin();

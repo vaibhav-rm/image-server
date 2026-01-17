@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Orbitron, Space_Grotesk } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import { AuthContextProvider } from "@/context/AuthContext";
 import Navbar from "@/components/Navbar";
 import PageWrapper from "@/components/PageWrapper";
@@ -41,6 +42,7 @@ export default function RootLayout({
                 {children}
              </PageWrapper>
           </AuthContextProvider>
+          <Analytics />
       </body>
     </html>
   );

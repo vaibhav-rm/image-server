@@ -26,38 +26,44 @@ export default function MemoriesPage() {
 
     const fetchData = async () => {
         setFetching(true);
+        // Independent fetches to prevent one failure from breaking everything
+        let memories: any[] = [];
+        let userEvents: any[] = [];
+
         try {
             // 1. Fetch Memories
             const memoriesQuery = query(collection(db, "memories"), orderBy("createdAt", "desc"));
             const memoriesSnap = await getDocs(memoriesQuery);
-            const memories = memoriesSnap.docs.map(doc => ({
+            memories = memoriesSnap.docs.map(doc => ({
                 type: 'memory',
                 id: doc.id,
                 ...doc.data(),
                 sortDate: doc.data().createdAt?.toDate() || new Date()
             }));
+        } catch (e) {
+            console.error("Failed to fetch memories", e);
+        }
 
+        try {
             // 2. Fetch Users (for 'Joined' events)
             const usersQuery = query(collection(db, "users"), orderBy("joinedAt", "desc"));
             const usersSnap = await getDocs(usersQuery);
-            // Default to createdAt or now if joinedAt is missing (for legacy or admin)
-            const userEvents = usersSnap.docs.map(doc => ({
+            userEvents = usersSnap.docs.map(doc => ({
                 type: 'join',
                 id: doc.id,
                 ...doc.data(),
                 sortDate: doc.data().joinedAt?.toDate() || doc.data().createdAt?.toDate() || new Date()
             }));
-
-            // 3. Merge & Sort
-            const combined = [...memories, ...userEvents];
-            combined.sort((a: any, b: any) => b.sortDate - a.sortDate);
-
-            setTimelineItems(combined);
-        } catch (error) {
-            console.error("Error fetching timeline:", error);
-        } finally {
-            setFetching(false);
+        } catch (e) {
+             console.error("Failed to fetch users for timeline", e);
         }
+
+        // 3. Merge & Sort
+        const combined = [...memories, ...userEvents];
+        combined.sort((a: any, b: any) => b.sortDate - a.sortDate);
+
+        setTimelineItems(combined);
+        setFetching(false);
     };
 
     fetchData();
@@ -90,7 +96,13 @@ export default function MemoriesPage() {
                             {(() => {
                                 const mainMedia = item.media?.[0] || { url: item.mediaUrl, type: item.mediaType };
                                 return mainMedia.type === 'video' ? (
-                                    <video src={mainMedia.url} className="w-full h-full object-cover" />
+                                    <video 
+                                        src={mainMedia.url} 
+                                        className="w-full h-full object-cover" 
+                                        controls 
+                                        playsInline
+                                        crossOrigin="anonymous"
+                                    />
                                 ) : (
                                     <img src={getProxyUrl(mainMedia.url)} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
                                 );

@@ -38,12 +38,13 @@ export const AuthContextProvider = ({ children }: { children: React.ReactNode })
         const userDoc = await getDoc(userDocRef);
 
         // If user is the hardcoded Admin OR exists in 'users' collection
-        // TEMPORARY FIX: Allow EVERYONE
-        const ALLOW_ALL = true;
+        // OR if their email is in the 'invites' collection
+        const inviteRef = doc(db, "invites", user.email!);
+        const inviteDoc = await getDoc(inviteRef);
 
-        if (ALLOW_ALL || isAdmin || userDoc.exists()) {
+        if (isAdmin || userDoc.exists() || inviteDoc.exists()) {
              
-             // If User doesn't have a doc yet, create it automatically
+             // If User doesn't have a doc yet (but is invited/admin), create it automatically
              if (!userDoc.exists()) {
                  await setDoc(userDocRef, {
                      uid: user.uid,
@@ -58,7 +59,7 @@ export const AuthContextProvider = ({ children }: { children: React.ReactNode })
              console.log("Welcome back.");
              router.push("/home");
         } else {
-             // 2. Not a member. Check/Create Request.
+             // 2. Not a member and Not Invited. Check/Create Request.
              const requestRef = doc(db, "access_requests", user.uid);
              const requestDoc = await getDoc(requestRef);
              
@@ -99,21 +100,9 @@ export const AuthContextProvider = ({ children }: { children: React.ReactNode })
           
           if (userDoc.exists()) {
               setUser(currentUser);
-          } else if (true) { // ALLOW ALL FOR NOW
-               // Auto-create doc if missing and allow
-               if (!userDoc.exists()) {
-                     await setDoc(userDocRef, {
-                        uid: currentUser!.uid,
-                        email: currentUser!.email,
-                        displayName: currentUser!.displayName,
-                        photoURL: currentUser!.photoURL,
-                        role: 'member',
-                        joinedAt: serverTimestamp()
-                    });
-               }
-               setUser(currentUser);
           } else if (isAdmin) {
                // Admin bypass: Create doc if missing and allow
+               // (Code logic reduced for duplicates, but keeping strict path)
                if (!userDoc.exists()) {
                      await setDoc(userDocRef, {
                         uid: currentUser!.uid,
@@ -126,10 +115,30 @@ export const AuthContextProvider = ({ children }: { children: React.ReactNode })
                }
                setUser(currentUser);
           } else {
-              // Even if Firebase Auth says yes, our app says wait.
-              setUser(currentUser);
-              if (window.location.pathname !== '/pending') {
-                  router.push("/pending");
+              // Check if they are invited (edge case where they logged in but doc creation failed or was deleted)
+              const inviteRef = doc(db, "invites", currentUser.email!);
+              const inviteDoc = await getDoc(inviteRef);
+
+              if (inviteDoc.exists()) {
+                  // Re-create user doc if missing
+                   if (!userDoc.exists()) {
+                     await setDoc(userDocRef, {
+                        uid: currentUser!.uid,
+                        email: currentUser!.email,
+                        displayName: currentUser!.displayName,
+                        photoURL: currentUser!.photoURL,
+                        role: 'member',
+                        joinedAt: serverTimestamp()
+                    });
+                   }
+                   setUser(currentUser);
+              } else {
+                  // Not allowed.
+                  // Only set user if we want them to see the pending page properly authenticated (usually yes)
+                  setUser(currentUser); 
+                  if (window.location.pathname !== '/pending') {
+                      router.push("/pending");
+                  }
               }
           }
       } else {

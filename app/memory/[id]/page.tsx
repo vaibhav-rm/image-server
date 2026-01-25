@@ -33,12 +33,16 @@ export default function SingleMemoryPage({ params }: { params: Promise<{ id: str
     if (!unwrappedParams?.id || !user) return;
 
     const fetchMemory = async () => {
-        const docRef = doc(db, "memories", unwrappedParams.id);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-            setMemory({ id: docSnap.id, ...docSnap.data() });
-        } else {
-            console.log("No such memory!");
+        try {
+            const docRef = doc(db, "memories", unwrappedParams.id);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                setMemory({ id: docSnap.id, ...docSnap.data() });
+            } else {
+                console.log("No such memory!");
+            }
+        } catch (error) {
+            console.error("Error fetching memory:", error);
         }
     };
 

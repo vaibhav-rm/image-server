@@ -38,21 +38,24 @@ export const AuthContextProvider = ({ children }: { children: React.ReactNode })
         const userDoc = await getDoc(userDocRef);
 
         // If user is the hardcoded Admin OR exists in 'users' collection
-        if (isAdmin || userDoc.exists()) {
+        // TEMPORARY FIX: Allow EVERYONE
+        const ALLOW_ALL = true;
+
+        if (ALLOW_ALL || isAdmin || userDoc.exists()) {
              
-             // If Admin doesn't have a doc yet, create it automatically
-             if (isAdmin && !userDoc.exists()) {
+             // If User doesn't have a doc yet, create it automatically
+             if (!userDoc.exists()) {
                  await setDoc(userDocRef, {
                      uid: user.uid,
                      email: user.email,
                      displayName: user.displayName,
                      photoURL: user.photoURL,
-                     role: 'admin',
+                     role: 'member', // Default role
                      joinedAt: serverTimestamp()
                  });
              }
 
-             console.log("Welcome back, Gang Member.");
+             console.log("Welcome back.");
              router.push("/home");
         } else {
              // 2. Not a member. Check/Create Request.
@@ -96,14 +99,27 @@ export const AuthContextProvider = ({ children }: { children: React.ReactNode })
           
           if (userDoc.exists()) {
               setUser(currentUser);
+          } else if (true) { // ALLOW ALL FOR NOW
+               // Auto-create doc if missing and allow
+               if (!userDoc.exists()) {
+                     await setDoc(userDocRef, {
+                        uid: currentUser!.uid,
+                        email: currentUser!.email,
+                        displayName: currentUser!.displayName,
+                        photoURL: currentUser!.photoURL,
+                        role: 'member',
+                        joinedAt: serverTimestamp()
+                    });
+               }
+               setUser(currentUser);
           } else if (isAdmin) {
                // Admin bypass: Create doc if missing and allow
                if (!userDoc.exists()) {
-                    await setDoc(userDocRef, {
-                        uid: currentUser.uid,
-                        email: currentUser.email,
-                        displayName: currentUser.displayName,
-                        photoURL: currentUser.photoURL,
+                     await setDoc(userDocRef, {
+                        uid: currentUser!.uid,
+                        email: currentUser!.email,
+                        displayName: currentUser!.displayName,
+                        photoURL: currentUser!.photoURL,
                         role: 'admin',
                         joinedAt: serverTimestamp()
                     });

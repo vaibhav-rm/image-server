@@ -12,7 +12,8 @@ service cloud.firestore {
     // OR an 'invites' collection where the document ID is the Email (sanitized)
     // For simplicity in this MVP, we'll check if the user exists in 'users' collection.
     function isWhitelisted() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      // return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      return isAuthenticated();
     }
 
     // Users collection: specific user can read/write their own doc

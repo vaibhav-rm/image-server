@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+/**
+ * Fallback proxy for old Firebase token URLs with CORS trouble.
+ * New code loads signed URLs directly (much faster). This route
+ * streams instead of buffering, so it won't OOM on large files.
+ */
 export async function GET(request: NextRequest) {
     const url = request.nextUrl.searchParams.get('url');
 
@@ -7,38 +12,22 @@ export async function GET(request: NextRequest) {
         return new NextResponse('Missing URL parameter', { status: 400 });
     }
 
-    // Security: Only allow requests to your specific Firebase bucket
     if (!url.includes('firebasestorage.googleapis.com') && !url.includes('storage.googleapis.com')) {
         return new NextResponse('Invalid URL domain', { status: 403 });
     }
 
     try {
-        const headers = new Headers();
-        // Logic: If the URL is already a Signed URL (contains signature), it should work if we just fetch it.
-        // If it's a "token" URL (Client SDK style), it might fail (412).
-        // The new Upload API returns Signed URLs.
+        const upstream = await fetch(url, { cache: 'force-cache' });
 
-        // We try to fetch it directly. If it's a new upload, it's a signed URL and should work.
-        // If it's an old upload with a token, we still try. 
-        // Worst case, we are now server-side so we could technically use Admin SDK to re-sign it if we parsed the path,
-        // but mixing strategies is complex. Let's rely on the URL being valid or Signed.
-
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: headers,
-            cache: 'no-store',
-        });
-
-        if (!response.ok) {
-            console.error(`Proxy upstream error: ${response.status} ${response.statusText}`);
-            return new NextResponse(`Failed to fetch image: ${response.statusText}`, { status: response.status });
+        if (!upstream.ok || !upstream.body) {
+            return new NextResponse(`Failed to fetch image: ${upstream.statusText}`, {
+                status: upstream.status,
+            });
         }
 
-        const contentType = response.headers.get('content-type') || 'application/octet-stream';
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
+        const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
 
-        return new NextResponse(buffer, {
+        return new NextResponse(upstream.body, {
             headers: {
                 'Content-Type': contentType,
                 'Cache-Control': 'public, max-age=31536000, immutable',

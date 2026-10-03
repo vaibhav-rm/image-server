@@ -1,134 +1,155 @@
 "use client";
 
+import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import GlassCard from "@/components/GlassCard";
-import { collection, query, orderBy, limit, onSnapshot } from "firebase/firestore";
-import { db } from "@/firebase/config";
-import { getProxyUrl } from "@/lib/imageProxy";
+import { useEffect } from "react";
+import { usePaginatedMemories, useInfiniteSentinel } from "@/hooks/usePaginatedMemories";
+import { MediaTile } from "@/components/MediaTile";
+import { SmartImage } from "@/components/SmartImage";
+import { SmartVideo } from "@/components/SmartVideo";
+import { Eyebrow, TileSkeleton, EmptyState } from "@/components/ui";
+import { greeting, timeAgo } from "@/lib/media";
 
 export default function HomePage() {
-  const { user, loading } = useAuth();
+  const { user, loading, profile } = useAuth();
   const router = useRouter();
-  const [memories, setMemories] = useState<any[]>([]);
+  const { items, loading: fetching, loadingMore, hasMore, loadMore } =
+    usePaginatedMemories(18);
+  const sentinel = useInfiniteSentinel(loadMore, hasMore && !fetching);
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push("/login");
-    }
+    if (!loading && !user) router.push("/login");
   }, [user, loading, router]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    // Fetch recent memories for the drifting hero
-    const q = query(collection(db, "memories"), orderBy("createdAt", "desc"), limit(12));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setMemories(items);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
 
   if (loading || !user) return null;
 
+  const [hero, ...rest] = items;
+  const heroMedia = hero?.media[0];
+
   return (
-    <div className="min-h-screen relative overflow-hidden bg-dih-bg text-dih-fg selection:bg-dih-primary selection:text-black">
-      
-      {/* Hero Grid Container */}
-      <div className="w-full h-full px-4 pb-32 max-w-7xl mx-auto">
-         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 auto-rows-[250px] md:auto-rows-[300px]">
-             {/* Main Hero Tile - Spans 2x2 on Desktop, 2x1 on Mobile */}
-            {memories.length > 0 && (
-                <div className="col-span-2 row-span-2 relative group rounded-2xl overflow-hidden border border-white/10 cursor-pointer" onClick={() => router.push(`/memory/${memories[0].id}`)}>
-                    {(() => {
-                        const media = memories[0].media?.[0] || { url: memories[0].mediaUrl, type: memories[0].mediaType };
-                         return media?.type === 'video' ? (
-                            <video src={media.url} autoPlay muted loop playsInline className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                         ) : (
-                            <img src={getProxyUrl(media?.url)} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                         );
-                    })()}
-                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-6">
-                        <span className="text-dih-accent text-xs font-bold tracking-widest mb-2">LATEST MEMORY</span>
-                        <h2 className="text-2xl md:text-4xl font-orbitron text-white">{memories[0].eventName || "Untitled Event"}</h2>
-                        <p className="text-dih-fg/80 line-clamp-2 mt-2 font-inter text-sm">{memories[0].caption}</p>
-                    </div>
+    <div className="relative z-10">
+      {/* Welcome */}
+      <section className="pb-6 pt-2">
+        <Eyebrow>{new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Eyebrow>
+        <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
+          <h1 className="max-w-xl font-[family-name:var(--font-display)] text-[34px] font-medium leading-[1.05] tracking-tight sm:text-[44px]">
+            {greeting()}, {profile?.displayName?.split(" ")[0] || user.displayName?.split(" ")[0] || "friend"}. Here’s what the gang’s been up to.
+          </h1>
+          <Link
+            href="/upload"
+            className="rounded-full bg-[#1c1917] px-5 py-3 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5"
+          >
+            + Add photos
+          </Link>
+        </div>
+      </section>
+
+      {fetching ? (
+        <TileSkeleton />
+      ) : items.length === 0 ? (
+        <EmptyState
+          title="No memories yet"
+          hint="Be the first to drop a photo or video — the album starts with you."
+          action={
+            <Link href="/upload" className="rounded-full bg-[#1c1917] px-5 py-3 text-sm font-semibold text-white">
+              Add the first one
+            </Link>
+          }
+        />
+      ) : (
+        <>
+          {/* Featured */}
+          {hero && heroMedia && (
+            <section
+              onClick={() => router.push(`/memory/${hero.id}`)}
+              className="card-hover mb-5 cursor-pointer overflow-hidden rounded-[24px] border border-[#e8e1d5] bg-white"
+            >
+              <div className="grid md:grid-cols-5">
+                <div className="relative min-h-[260px] sm:min-h-[320px] md:col-span-3 md:min-h-[420px]">
+                  {heroMedia.type === "video" ? (
+                    <SmartVideo src={heroMedia.url} eager />
+                  ) : (
+                    <SmartImage
+                      src={heroMedia.url}
+                      alt={hero.caption || hero.eventName || "Latest memory"}
+                      eager
+                      sizes="(max-width: 768px) 100vw, 60vw"
+                    />
+                  )}
+                  {hero.media.length > 1 && (
+                    <span className="absolute left-4 top-4 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white backdrop-blur">
+                      {hero.media.length} photos
+                    </span>
+                  )}
                 </div>
-            )}
-
-            {/* Sub Tiles */}
-            {memories.slice(1, 7).map((mem, i) => (
-                <div key={mem.id} className={`relative group rounded-2xl overflow-hidden border border-white/10 cursor-pointer ${i === 2 || i === 5 ? 'md:col-span-2' : ''}`} onClick={() => router.push(`/memory/${mem.id}`)}>
-                     {(() => {
-                        const media = mem.media?.[0] || { url: mem.mediaUrl, type: mem.mediaType };
-                         return media?.type === 'video' ? (
-                            <video src={media.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity duration-500" />
-                         ) : (
-                            <img src={getProxyUrl(media?.url)} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity duration-500" />
-                         );
-                    })()}
-                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-4">
-                        <p className="font-orbitron text-center text-white font-bold">{mem.eventName || "Memory"}</p>
-                    </div>
-                </div>
-            ))}
-         </div>
-         
-         {memories.length === 0 && (
-             <div className="flex flex-col items-center justify-center h-[50vh] text-dih-fg/50">
-                 <p className="font-space tracking-widest">LOADING MEMORIES...</p>
-             </div>
-         )}
-      </div>
-
-       <div className="absolute bottom-20 left-0 w-full text-center pointer-events-none z-10">
-            <p className="text-dih-fg/30 font-space text-xs tracking-[0.2em] animate-pulse mb-2">
-                DRIFTING THROUGH MEMORIES...
-            </p>
-       </div>
-
-       {/* Horizontal Scrollable Strip (More things to scroll) */}
-       <div className="absolute bottom-0 left-0 w-full z-40 bg-black/40 backdrop-blur-md border-t border-white/10 p-4">
-            <h3 className="text-xs font-orbitron text-dih-primary mb-2 tracking-widest px-4">RECENT CAPTURES</h3>
-            <div className="flex gap-4 overflow-x-auto pb-2 px-4 scrollbar-hide">
-                {memories.map((mem) => (
-                    <div key={mem.id} className="flex-shrink-0 w-48 h-32 relative rounded-lg overflow-hidden border border-white/10 group cursor-pointer" onClick={() => router.push(`/memory/${mem.id}`)}>
-                        {(() => {
-                             const media = mem.media?.[0] || { url: mem.mediaUrl, type: mem.mediaType };
-                             return media?.type === 'video' ? (
-                                <video src={media.url} className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition-opacity" />
-                             ) : (
-                                <img src={getProxyUrl(media?.url)} className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition-opacity" />
-                             );
-                        })()}
-                        <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black to-transparent">
-                            <p className="text-xs font-space text-white truncate">{mem.eventName || mem.caption}</p>
-                        </div>
-                    </div>
-                ))}
-            </div>
-       </div>
-
-       {/* V2: Recent Activity Ticker (Still kept floating) */}
-       <div className="absolute top-24 right-6 z-40 hidden md:block w-72">
-           <GlassCard className="p-4 border-dih-white/5 bg-black/40 backdrop-blur-xl">
-                <h3 className="text-xs font-orbitron text-dih-secondary mb-3 tracking-widest border-b border-dih-white/10 pb-2">LIVE FEED</h3>
-                <div className="space-y-3">
-                    {memories.slice(0, 3).map((mem) => (
-                         <div key={mem.id} className="flex items-center gap-3 text-xs">
-                            <div className="w-1 h-1 bg-dih-primary rounded-full animate-ping" />
-                            <span className="text-dih-fg/80 truncate">New upload: <span className="text-white">{mem.eventName || "Untitled"}</span></span>
-                        </div>
+                <div className="flex flex-col justify-center p-6 sm:p-8 md:col-span-2">
+                  <Eyebrow>Latest · {timeAgo(hero.sortDate)}</Eyebrow>
+                  <h2 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-medium leading-tight tracking-tight">
+                    {hero.eventName || "A good day"}
+                  </h2>
+                  {hero.caption && (
+                    <p className="mt-3 leading-relaxed text-[#57534e]">{hero.caption}</p>
+                  )}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {(hero.people || []).slice(0, 4).map((p) => (
+                      <span key={p} className="rounded-full bg-[#f3efe7] px-3 py-1 text-xs font-medium text-[#57534e]">
+                        {p}
+                      </span>
                     ))}
+                  </div>
+                  <span className="mt-6 text-sm font-semibold text-[#b4540a]">
+                    Open memory →
+                  </span>
                 </div>
-           </GlassCard>
-       </div>
+              </div>
+            </section>
+          )}
+
+          {/* Quick stats */}
+          <section className="mb-5 grid grid-cols-3 gap-3">
+            {[
+              { label: "Memories", value: String(items.length) + (hasMore ? "+" : "") },
+              { label: "This batch", value: `${rest.length} new` },
+              { label: "Gang", value: "all here" },
+            ].map((s) => (
+              <div key={s.label} className="rounded-2xl border border-[#e8e1d5] bg-white px-4 py-3.5">
+                <p className="font-[family-name:var(--font-display)] text-xl">{s.value}</p>
+                <p className="text-xs text-[#a8a29e]">{s.label}</p>
+              </div>
+            ))}
+          </section>
+
+          {/* Recent grid */}
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-[family-name:var(--font-display)] text-[22px] font-medium tracking-tight">
+                Recent drops
+              </h2>
+              <Link href="/gallery" className="text-sm font-semibold text-[#57534e] hover:text-[#1c1917]">
+                View all →
+              </Link>
+            </div>
+            <div className="masonry">
+              {rest.map((m) => (
+                <MediaTile key={m.id} memory={m} />
+              ))}
+            </div>
+            <div ref={sentinel} className="py-8 text-center text-sm text-[#a8a29e]">
+              {loadingMore ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#e8e1d5] border-t-[#1c1917]" />
+                  Loading more…
+                </span>
+              ) : hasMore ? (
+                "Scroll for more"
+              ) : items.length > 0 ? (
+                "That’s everything — for now."
+              ) : null}
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }
-
-

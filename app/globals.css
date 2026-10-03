@@ -1,59 +1,130 @@
 @import "tailwindcss";
 
-:root {
-  --background: #050510;
-  --foreground: #ededed;
-  
-  /* Brand Colors */
-  --color-primary: #00ffff;
-  --color-secondary: #ff00ff;
-  --color-accent: #39ff14;
-  --color-glass: rgba(255, 255, 255, 0.05);
-  
-  /* Fonts */
-  --font-orbitron: 'Orbitron', sans-serif;
-  --font-space: 'Space Grotesk', sans-serif;
-  --font-inter: 'Inter', sans-serif;
+@theme {
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --color-paper: #faf8f4;
+  --color-cream: #f3efe7;
+  --color-ink: #1c1917;
+  --color-muted: #78716c;
+  --color-line: #e8e1d5;
+  --color-clay: #b4540a;
+  --color-clay-soft: #fef0e2;
+  --color-moss: #4d5e3f;
+  --color-moss-soft: #edf1e8;
 }
 
-@theme {
-  --color-dih-bg: var(--background);
-  --color-dih-fg: var(--foreground);
-  --color-dih-primary: var(--color-primary);
-  --color-dih-secondary: var(--color-secondary);
-  --color-dih-accent: var(--color-accent);
-  --color-dih-glass: var(--color-glass);
+:root {
+  --background: #faf8f4;
+  --foreground: #1c1917;
+}
 
-  --font-orbitron: var(--font-orbitron);
-  --font-space: var(--font-space);
-  --font-inter: var(--font-inter);
+html {
+  /* No scroll-behavior here: it breaks Next route transitions
+     and logs a warning in dev. */
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-inter);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   overflow-x: hidden;
 }
 
-/* Glassmorphism Utilities */
-.glass {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+::selection {
+  background: #1c1917;
+  color: #faf8f4;
 }
 
-.glass-hover:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 0 15px rgba(0, 255, 255, 0.1);
+/* Soft editorial card */
+.card {
+  background: #fff;
+  border: 1px solid var(--color-line);
+  border-radius: 20px;
+  box-shadow: 0 1px 2px rgba(28, 25, 23, 0.04), 0 12px 32px -16px rgba(28, 25, 23, 0.18);
 }
 
-.neon-text {
-  text-shadow: 0 0 10px rgba(0, 255, 255, 0.5), 0 0 20px rgba(0, 255, 255, 0.3);
+.card-hover {
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 4px rgba(28, 25, 23, 0.05), 0 20px 44px -20px rgba(28, 25, 23, 0.28);
+  border-color: #d9cfbd;
 }
 
-.neon-border {
-  box-shadow: 0 0 5px rgba(255, 0, 255, 0.5), inset 0 0 5px rgba(255, 0, 255, 0.2);
+/* Masonry: cheap CSS columns, no JS layout */
+.masonry {
+  columns: 2;
+  column-gap: 14px;
+}
+@media (min-width: 768px) {
+  .masonry { columns: 3; column-gap: 18px; }
+}
+@media (min-width: 1280px) {
+  .masonry { columns: 4; }
+}
+.masonry > * {
+  break-inside: avoid;
+  margin-bottom: 14px;
+}
+@media (min-width: 768px) {
+  .masonry > * { margin-bottom: 18px; }
+}
+
+/* Big lists stay smooth: browser skips offscreen rendering */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
+}
+
+/* Image fade-in */
+.img-fade {
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.img-fade.is-loaded {
+  opacity: 1;
+}
+
+/* Shimmer skeleton */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #ece6d9;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.7) 50%, transparent 80%);
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Film-grain paper texture, very subtle */
+.paper-grain::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+  background-image: radial-gradient(rgba(28, 25, 23, 0.055) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(to bottom, black, transparent 60%);
 }

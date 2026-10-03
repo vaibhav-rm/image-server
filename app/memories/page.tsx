@@ -1,159 +1,134 @@
 "use client";
 
+import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { collection, query, orderBy, getDocs } from "firebase/firestore";
-import { db } from "@/firebase/config";
-import GlassCard from "@/components/GlassCard";
-import { motion } from "framer-motion";
-
-import { getProxyUrl } from "@/lib/imageProxy";
+import { useEffect, useMemo } from "react";
+import { usePaginatedMemories, useInfiniteSentinel } from "@/hooks/usePaginatedMemories";
+import { SmartImage } from "@/components/SmartImage";
+import { SmartVideo } from "@/components/SmartVideo";
+import { EmptyState, TileSkeleton } from "@/components/ui";
+import { formatLong, monthKey } from "@/lib/media";
 
 export default function MemoriesPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [timelineItems, setTimelineItems] = useState<any[]>([]);
-  const [fetching, setFetching] = useState(true);
-
-  if (!loading && !user) {
-    router.push("/login");
-    return null;
-  }
+  const { items, loading: fetching, loadingMore, hasMore, loadMore } =
+    usePaginatedMemories(20);
+  const sentinel = useInfiniteSentinel(loadMore, hasMore && !fetching);
 
   useEffect(() => {
-    if (!user) return;
+    if (!loading && !user) router.push("/login");
+  }, [user, loading, router]);
 
-    const fetchData = async () => {
-        setFetching(true);
-        // Independent fetches to prevent one failure from breaking everything
-        let memories: any[] = [];
-        let userEvents: any[] = [];
+  const groups = useMemo(() => {
+    const map = new Map<string, typeof items>();
+    for (const m of items) {
+      const k = monthKey(m.sortDate);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(m);
+    }
+    return [...map.entries()];
+  }, [items]);
 
-        try {
-            // 1. Fetch Memories
-            const memoriesQuery = query(collection(db, "memories"), orderBy("createdAt", "desc"));
-            const memoriesSnap = await getDocs(memoriesQuery);
-            memories = memoriesSnap.docs.map(doc => ({
-                type: 'memory',
-                id: doc.id,
-                ...doc.data(),
-                sortDate: doc.data().createdAt?.toDate() || new Date()
-            }));
-        } catch (e) {
-            console.error("Failed to fetch memories", e);
-        }
-
-        try {
-            // 2. Fetch Users (for 'Joined' events)
-            const usersQuery = query(collection(db, "users"), orderBy("joinedAt", "desc"));
-            const usersSnap = await getDocs(usersQuery);
-            userEvents = usersSnap.docs.map(doc => ({
-                type: 'join',
-                id: doc.id,
-                ...doc.data(),
-                sortDate: doc.data().joinedAt?.toDate() || doc.data().createdAt?.toDate() || new Date()
-            }));
-        } catch (e) {
-             console.error("Failed to fetch users for timeline", e);
-        }
-
-        // 3. Merge & Sort
-        const combined = [...memories, ...userEvents];
-        combined.sort((a: any, b: any) => b.sortDate - a.sortDate);
-
-        setTimelineItems(combined);
-        setFetching(false);
-    };
-
-    fetchData();
-  }, [user]);
+  if (loading || !user) return null;
 
   return (
-    <div className="min-h-screen bg-dih-bg py-24 px-4 overflow-y-auto">
-      <div className="max-w-2xl mx-auto space-y-12">
-         <h1 className="text-4xl font-orbitron text-dih-primary text-center mb-12 neon-text">
-             TIMELINE
-         </h1>
+    <div className="relative z-10 mx-auto max-w-3xl">
+      <h1 className="font-[family-name:var(--font-display)] text-[32px] font-medium tracking-tight sm:text-4xl">
+        Timeline
+      </h1>
+      <p className="mt-1 text-[15px] text-[#78716c]">The story so far, month by month.</p>
 
-         {fetching ? (
-             <div className="text-center font-space text-dih-fg/50 animate-pulse">LOADING MEMORIES...</div>
-         ) : timelineItems.map((item, index) => (
-             <motion.div
-                key={item.id}
-                initial={{ opacity: 0, y: 50 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.1 }}
-             >
-                {item.type === 'memory' ? (
-                    <GlassCard 
-                        className="cursor-pointer group"
-                        onClick={() => router.push(`/memory/${item.id}`)}
-                    >
-                        <div className="aspect-video w-full bg-black/50 rounded-lg overflow-hidden mb-4 relative">
-                            {/* Resolve main media item */}
-                            {(() => {
-                                const mainMedia = item.media?.[0] || { url: item.mediaUrl, type: item.mediaType };
-                                return mainMedia.type === 'video' ? (
-                                    <video 
-                                        src={mainMedia.url} 
-                                        className="w-full h-full object-cover" 
-                                        controls 
-                                        playsInline
-                                        crossOrigin="anonymous"
-                                    />
-                                ) : (
-                                    <img src={getProxyUrl(mainMedia.url)} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                                );
-                            })()}
-                            
-                            <div className="absolute top-2 right-2 flex gap-2 z-10">
-                                <span className="bg-black/50 backdrop-blur px-2 py-1 rounded text-xs font-space border border-white/10">
-                                    {item.sortDate.toLocaleDateString()}
-                                </span>
-                                {item.media?.length > 1 && (
-                                     <span className="bg-dih-primary/80 text-black px-2 py-1 rounded text-xs font-bold font-space">
-                                         +{item.media.length - 1}
-                                     </span>
-                                )}
-                            </div>
+      <div className="mt-6">
+        {fetching ? (
+          <div className="space-y-4">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="card overflow-hidden">
+                <div className="skeleton aspect-video w-full" />
+                <div className="space-y-2 p-5">
+                  <div className="skeleton h-5 w-1/3 rounded-full" />
+                  <div className="skeleton h-4 w-2/3 rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : items.length === 0 ? (
+          <EmptyState
+            title="The story hasn’t started yet"
+            hint="Add your first memory and it’ll appear here on the timeline."
+            action={
+              <Link href="/upload" className="rounded-full bg-[#1c1917] px-5 py-3 text-sm font-semibold text-white">
+                Add a memory
+              </Link>
+            }
+          />
+        ) : (
+          <div className="space-y-10">
+            {groups.map(([month, mems]) => (
+              <section key={month}>
+                <div className="mb-4 flex items-center gap-3">
+                  <h2 className="font-[family-name:var(--font-display)] text-xl italic">{month}</h2>
+                  <span className="h-px flex-1 bg-[#e8e1d5]" />
+                  <span className="text-xs text-[#a8a29e]">{mems.length}</span>
+                </div>
+                <div className="space-y-5">
+                  {mems.map((m) => {
+                    const first = m.media[0];
+                    if (!first) return null;
+                    return (
+                      <article
+                        key={m.id}
+                        onClick={() => router.push(`/memory/${m.id}`)}
+                        className="card-hover cursor-pointer overflow-hidden rounded-[20px] border border-[#e8e1d5] bg-white"
+                      >
+                        <div className="aspect-video w-full">
+                          {first.type === "video" ? (
+                            <SmartVideo src={first.url} />
+                          ) : (
+                            <SmartImage
+                              src={first.url}
+                              alt={m.caption || m.eventName || "Memory"}
+                              sizes="(max-width: 768px) 100vw, 700px"
+                            />
+                          )}
                         </div>
-                        
-                        <div>
-                            {item.eventName && (
-                                <h3 className="font-orbitron text-dih-primary text-xl mb-1">{item.eventName}</h3>
+                        <div className="p-5">
+                          <p className="text-xs text-[#a8a29e]">{formatLong(m.sortDate)}</p>
+                          {m.eventName && (
+                            <h3 className="mt-1 font-[family-name:var(--font-display)] text-[22px] leading-snug">
+                              {m.eventName}
+                            </h3>
+                          )}
+                          {m.caption && (
+                            <p className="mt-1.5 text-[15px] leading-relaxed text-[#57534e]">{m.caption}</p>
+                          )}
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            {(m.tags || []).map((t) => (
+                              <span key={t} className="rounded-full bg-[#f3efe7] px-2.5 py-1 text-xs text-[#57534e]">
+                                #{t}
+                              </span>
+                            ))}
+                            {m.media.length > 1 && (
+                              <span className="rounded-full bg-[#1c1917] px-2.5 py-1 text-xs font-medium text-white">
+                                +{m.media.length - 1} more
+                              </span>
                             )}
-                            <p className={`font-space text-white mb-2 ${item.eventName ? "text-sm text-dih-fg/70" : "text-lg"}`}>
-                                {item.caption}
-                            </p>
-                            <div className="flex flex-wrap gap-2 mt-2">
-                                {item.tags?.map((tag: string) => (
-                                    <span key={tag} className="text-xs text-dih-secondary bg-dih-secondary/10 px-2 py-1 rounded border border-dih-secondary/20">
-                                        #{tag}
-                                    </span>
-                                ))}
-                            </div>
+                          </div>
                         </div>
-                    </GlassCard>
-                ) : (
-                    <div className="flex items-center gap-4 py-8 border-l-2 border-dih-accent/20 pl-8 ml-4 relative">
-                        <div className="absolute left-[-9px] top-1/2 -translate-y-1/2 w-4 h-4 bg-dih-accent rounded-full shadow-[0_0_10px_#ff00ff]" />
-                        <div className="w-12 h-12 rounded-full overflow-hidden border border-dih-accent/50 relative">
-                             <img src={item.photoURL || "https://api.dicebear.com/7.x/avataaars/svg"} className="w-full h-full object-cover" />
-                        </div>
-                        <div>
-                            <p className="font-orbitron text-dih-accent">NEW GANG MEMBER</p>
-                            <p className="font-space text-white text-lg">
-                                <span className="font-bold">{item.displayName || item.email}</span> joined the party.
-                            </p>
-                            <p className="text-xs text-dih-fg/40 font-inter">{item.sortDate.toLocaleDateString()}</p>
-                        </div>
-                    </div>
-                )}
-             </motion.div>
-         ))}
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+            <div ref={sentinel} className="pb-6 pt-2 text-center text-sm text-[#a8a29e]">
+              {loadingMore ? "Loading earlier memories…" : hasMore ? "Scroll for earlier memories" : "Back to the beginning."}
+            </div>
+          </div>
+        )}
       </div>
+      {(!fetching && groups.length === 0) && <TileSkeleton />}
     </div>
   );
 }

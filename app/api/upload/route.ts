@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { adminStorage } from "@/lib/firebase-admin";
 
+/**
+ * Uploads a file with the Admin SDK and returns a short, stable
+ * Firebase download-token URL:
+ *   https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<path>?alt=media&token=<uuid>
+ *
+ * Token URLs (unlike long V4/V2 signed URLs) survive Next's image
+ * optimizer, browser caches, and cross-origin <video> playback —
+ * they are the same kind of URL the Firebase client SDK produces.
+ */
 export async function POST(request: NextRequest) {
     try {
         const formData = await request.formData();
@@ -14,30 +24,24 @@ export async function POST(request: NextRequest) {
         const buffer = Buffer.from(await file.arrayBuffer());
         const bucket = adminStorage.bucket();
         const fileRef = bucket.file(path);
+        const token = randomUUID();
 
         await fileRef.save(buffer, {
             metadata: {
-                contentType: file.type,
+                contentType: file.type || "application/octet-stream",
+                metadata: {
+                    firebaseStorageDownloadTokens: token,
+                },
             },
         });
 
-        // Make the file public (optional, helps with simple reads if rules allow, but we rely on Admin SDK)
-        // await fileRef.makePublic(); 
+        const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
 
-        // Get the public URL (or signed URL if strictly private)
-        // For now we construct the public URL manually which works if the bucket allows read or we proxy it
-        // But since the public access layer is broken (service agent missing), we need the signed URL or we proxy via server.
-
-        // Strategy: We return a token-based URL like Client SDK does? No, Admin SDK doesn't generate "download tokens" easily.
-        // Instead, we will return the GS path or a long-lived Signed URL.
-        // Since our Proxy can read ANY url from firebasestorage domain, we can actually use a Signed URL here.
-
-        const [signedUrl] = await fileRef.getSignedUrl({
-            action: 'read',
-            expires: '03-01-2500', // Long expiry
+        return NextResponse.json({
+            url,
+            path,
+            type: file.type.startsWith("image") ? "image" : "video",
         });
-
-        return NextResponse.json({ url: signedUrl, type: file.type.startsWith("image") ? "image" : "video" });
     } catch (error: any) {
         console.error("Upload error:", error);
         return NextResponse.json({ error: error.message }, { status: 500 });

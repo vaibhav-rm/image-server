@@ -2,97 +2,152 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useAuth } from "@/context/AuthContext";
-import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { Avatar } from "./ui";
+import { cn } from "@/lib/media";
 
 export default function Navbar() {
   const pathname = usePathname();
-  const { user } = useAuth();
-  const [isOpen, setIsOpen] = useState(false);
-  
-  // Don't show navbar on login page
+  const { user, profile, logOut } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [menu, setMenu] = useState(false);
+
   if (pathname === "/login" || pathname === "/pending") return null;
   if (!user) return null;
 
   const links = [
-    { href: "/home", label: "HOME" },
-    { href: "/gallery", label: "GALLERY" },
-    { href: "/memories", label: "TIMELINE" },
-    { href: "/friends", label: "GANG" },
-    { href: "/upload", label: "UPLOAD", highlight: true },
+    { href: "/home", label: "Home" },
+    { href: "/gallery", label: "Gallery" },
+    { href: "/memories", label: "Timeline" },
+    { href: "/friends", label: "Gang" },
   ];
 
   return (
-    <nav className="fixed top-0 left-0 w-full z-50 p-4 md:p-6 pointer-events-none">
-      <div className="max-w-7xl mx-auto flex justify-between items-center bg-dih-glass/5 backdrop-blur-md rounded-2xl px-6 py-4 border border-dih-white/5 pointer-events-auto shadow-[0_4px_30px_rgba(0,0,0,0.1)] relative">
-         <Link href="/home" className="group z-50 relative">
-             <h1 className="font-orbitron text-xl md:text-2xl font-bold tracking-widest text-white group-hover:text-dih-primary transition-colors neon-text">
-                DIH PICS
-             </h1>
-         </Link>
+    <header className="fixed inset-x-0 top-0 z-50">
+      <div className="mx-auto max-w-6xl px-3 pt-3 sm:px-5">
+        <nav className="flex items-center justify-between rounded-2xl border border-[#e8e1d5]/90 bg-[#faf8f4]/85 py-2.5 pl-4 pr-2.5 shadow-[0_8px_30px_-18px_rgba(28,25,23,0.4)] backdrop-blur-xl">
+          <Link href="/home" className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#1c1917] font-[family-name:var(--font-display)] text-lg text-[#faf8f4]">
+              d
+            </span>
+            <span className="leading-none">
+              <span className="block font-[family-name:var(--font-display)] text-[17px] font-semibold tracking-tight">
+                dih pics
+              </span>
+              <span className="block text-[11px] text-[#a8a29e]">our little album</span>
+            </span>
+          </Link>
 
-         {/* Desktop Menu */}
-         <div className="hidden md:flex gap-8 font-space text-sm items-center">
-             {links.map((link) => (
-                 <Link 
-                    key={link.href} 
-                    href={link.href}
-                    className={`relative transition-colors duration-300 ${
-                        pathname === link.href ? 'text-dih-primary' : 'text-dih-fg/70 hover:text-white'
-                    } ${link.highlight ? 'bg-dih-primary/10 px-4 py-2 rounded-lg border border-dih-primary/50 hover:bg-dih-primary/20 hover:shadow-[0_0_15px_rgba(0,255,255,0.3)]' : ''}`}
-                 >
-                     {link.label}
-                     {pathname === link.href && !link.highlight && (
-                         <motion.div 
-                            layoutId="nav-underline"
-                            className="absolute -bottom-1 left-0 right-0 h-0.5 bg-dih-primary shadow-[0_0_5px_#00ffff]" 
-                         />
-                     )}
-                 </Link>
-             ))}
-         </div>
+          <div className="hidden items-center gap-1 md:flex">
+            {links.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={cn(
+                  "rounded-full px-4 py-2 text-sm transition-colors",
+                  pathname === l.href || pathname.startsWith(l.href + "/")
+                    ? "bg-[#1c1917] text-white"
+                    : "text-[#57534e] hover:bg-[#1c1917]/5 hover:text-[#1c1917]"
+                )}
+              >
+                {l.label}
+              </Link>
+            ))}
+            <Link
+              href="/upload"
+              className="ml-2 rounded-full bg-[#b4540a] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#92400e]"
+            >
+              + Add photos
+            </Link>
+            <div className="relative ml-2">
+              <button onClick={() => setMenu((v) => !v)} className="block rounded-full">
+                <Avatar
+                  src={profile?.photoURL || user.photoURL || undefined}
+                  name={profile?.displayName || user.displayName || user.email || "you"}
+                  size={34}
+                />
+              </button>
+              {menu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
+                  <div className="absolute right-0 z-20 mt-2 w-52 overflow-hidden rounded-2xl border border-[#e8e1d5] bg-white shadow-xl">
+                    <div className="border-b border-[#f3efe7] px-4 py-3">
+                      <p className="truncate text-sm font-semibold">
+                        {profile?.displayName || user.displayName || "Friend"}
+                      </p>
+                      <p className="truncate text-xs text-[#a8a29e]">{user.email}</p>
+                    </div>
+                    <Link
+                      href="/settings"
+                      onClick={() => setMenu(false)}
+                      className="block w-full px-4 py-3 text-left text-sm text-[#57534e] hover:bg-[#faf8f4]"
+                    >
+                      Settings
+                    </Link>
+                    <button
+                      onClick={() => logOut()}
+                      className="w-full px-4 py-3 text-left text-sm text-[#57534e] hover:bg-[#faf8f4]"
+                    >
+                      Log out
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
 
-         {/* Mobile Toggle */}
-         <button 
-            className="md:hidden z-50 text-dih-primary p-2"
-            onClick={() => setIsOpen(!isOpen)}
-         >
-             <div className="space-y-1.5 w-6">
-                 {/* Simple animated hamburger could go here, for now just spans */}
-                 <motion.span animate={{ rotate: isOpen ? 45 : 0, y: isOpen ? 6 : 0 }} className="block h-0.5 w-full bg-current origin-center"></motion.span>
-                 <motion.span animate={{ opacity: isOpen ? 0 : 1 }} className="block h-0.5 w-full bg-current"></motion.span>
-                 <motion.span animate={{ rotate: isOpen ? -45 : 0, y: isOpen ? -6 : 0 }} className="block h-0.5 w-full bg-current origin-center"></motion.span>
-             </div>
-         </button>
+          <div className="flex items-center gap-2 md:hidden">
+            <Link
+              href="/upload"
+              className="rounded-full bg-[#b4540a] px-3.5 py-2 text-[13px] font-semibold text-white"
+            >
+              + Add
+            </Link>
+            <button
+              onClick={() => setOpen((v) => !v)}
+              aria-label="Menu"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-[#e8e1d5] bg-white"
+            >
+              <span className="space-y-1">
+                <span className="block h-0.5 w-4 bg-[#1c1917]" />
+                <span className="block h-0.5 w-4 bg-[#1c1917]" />
+              </span>
+            </button>
+          </div>
+        </nav>
 
-         {/* Mobile Menu Overlay */}
-         <AnimatePresence>
-             {isOpen && (
-                 <motion.div 
-                    initial={{ opacity: 0, y: -20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    className="absolute top-full left-0 right-0 mt-4 p-4 md:hidden bg-black/90 backdrop-blur-xl border border-dih-white/10 rounded-2xl overflow-hidden flex flex-col gap-2 shadow-2xl"
-                 >
-                     {links.map((link) => (
-                         <Link 
-                            key={link.href} 
-                            href={link.href}
-                            onClick={() => setIsOpen(false)}
-                            className={`p-4 text-center font-space text-lg transition-all rounded-xl ${
-                                pathname === link.href 
-                                    ? 'bg-dih-primary/10 text-dih-primary border border-dih-primary/30' 
-                                    : 'text-dih-fg hover:bg-white/5 active:bg-white/10'
-                            }`}
-                         >
-                             {link.label}
-                         </Link>
-                     ))}
-                 </motion.div>
-             )}
-         </AnimatePresence>
+        {open && (
+          <div className="mt-2 overflow-hidden rounded-2xl border border-[#e8e1d5] bg-white shadow-xl md:hidden">
+            {[...links, { href: "/upload", label: "Add photos" }].map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                onClick={() => setOpen(false)}
+                className={cn(
+                  "block border-b border-[#f3efe7] px-5 py-3.5 text-[15px] last:border-0",
+                  pathname === l.href ? "bg-[#faf8f4] font-semibold" : "text-[#44403c]"
+                )}
+              >
+                {l.label}
+              </Link>
+            ))}
+            <Link
+              href="/settings"
+              onClick={() => setOpen(false)}
+              className="block border-b border-[#f3efe7] px-5 py-3.5 text-[15px] text-[#44403c]"
+            >
+              Settings
+            </Link>
+            <button
+              onClick={() => logOut()}
+              className="block w-full px-5 py-3.5 text-left text-[15px] text-[#78716c]"
+            >
+              Log out
+            </button>
+          </div>
+        )}
       </div>
-    </nav>
+    </header>
   );
 }

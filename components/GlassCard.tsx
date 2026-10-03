@@ -1,6 +1,10 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { Card } from './ui';
 
+/**
+ * Backwards-compatible wrapper (old GlassCard API).
+ * Now renders the warm editorial card — no neon, no motion cost.
+ */
 interface GlassCardProps {
   children: React.ReactNode;
   className?: string;
@@ -8,16 +12,11 @@ interface GlassCardProps {
   onClick?: () => void;
 }
 
-const GlassCard: React.FC<GlassCardProps> = ({ children, className = '', hoverEffect = true, onClick }) => {
+const GlassCard: React.FC<GlassCardProps> = ({ children, className = '', onClick }) => {
   return (
-    <motion.div
-      className={`glass rounded-2xl p-6 ${className} ${hoverEffect ? 'glass-hover transition-all duration-300' : ''}`}
-      whileHover={hoverEffect ? { scale: 1.02, y: -5 } : {}}
-      onClick={onClick}
-      transition={{ type: "spring", stiffness: 300 }}
-    >
+    <Card className={className} onClick={onClick}>
       {children}
-    </motion.div>
+    </Card>
   );
 };
 

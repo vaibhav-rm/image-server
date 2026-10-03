@@ -5,10 +5,10 @@ import { ReactNode } from "react";
 
 export default function PageWrapper({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const isImmersivePage = pathname === "/login" || pathname === "/pending" || pathname.startsWith("/memory/");
+  const bare = pathname === "/login" || pathname === "/pending";
 
   return (
-    <main className={`relative pb-12 ${isImmersivePage ? "" : "pt-24 md:pt-32"}`}>
+    <main className={bare ? "relative" : "relative mx-auto max-w-6xl px-3 pb-16 pt-20 sm:px-5 sm:pt-24"}>
       {children}
     </main>
   );

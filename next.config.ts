@@ -4,20 +4,28 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       {
-        protocol: 'https',
-        hostname: 'firebasestorage.googleapis.com',
-        port: '',
-        pathname: '/v0/b/**',
+        protocol: "https",
+        hostname: "firebasestorage.googleapis.com",
       },
       {
-        protocol: 'https',
-        hostname: 'picsum.photos',
+        protocol: "https",
+        hostname: "storage.googleapis.com",
       },
       {
-        protocol: 'https',
-        hostname: 'api.dicebear.com',
-      }
+        protocol: "https",
+        hostname: "picsum.photos",
+      },
+      {
+        protocol: "https",
+        hostname: "api.dicebear.com",
+      },
+      {
+        protocol: "https",
+        hostname: "lh3.googleusercontent.com",
+      },
     ],
+    qualities: [60, 70, 80],
+    minimumCacheTTL: 86400,
   },
 };
 

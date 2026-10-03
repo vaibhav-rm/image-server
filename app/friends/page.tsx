@@ -2,11 +2,10 @@
 
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import GlassCard from "@/components/GlassCard";
 import { useEffect, useState } from "react";
-import { collection, query, orderBy, getDocs } from "firebase/firestore";
+import { collection, query, orderBy, getDocs, limit } from "firebase/firestore";
 import { db } from "@/firebase/config";
-import { motion } from "framer-motion";
+import { Avatar, EmptyState, Skeleton } from "@/components/ui";
 
 export default function FriendsPage() {
   const { user, loading } = useAuth();
@@ -14,79 +13,59 @@ export default function FriendsPage() {
   const [members, setMembers] = useState<any[]>([]);
   const [fetching, setFetching] = useState(true);
 
-  if (!loading && !user) {
-    router.push("/login");
-    return null;
-  }
+  useEffect(() => {
+    if (!loading && !user) router.push("/login");
+  }, [user, loading, router]);
 
   useEffect(() => {
     if (!user) return;
-
-    const fetchMembers = async () => {
-        setFetching(true);
-        try {
-            const q = query(collection(db, "users"), orderBy("joinedAt", "desc"));
-            const snapshot = await getDocs(q);
-            const userList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setMembers(userList);
-        } catch (error) {
-            console.error("Error fetching gang:", error);
-        } finally {
-            setFetching(false);
-        }
-    };
-
-    fetchMembers();
+    getDocs(query(collection(db, "users"), orderBy("joinedAt", "desc"), limit(100)))
+      .then((snap) => setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() }))))
+      .catch(console.error)
+      .finally(() => setFetching(false));
   }, [user]);
 
-  return (
-    <div className="min-h-screen bg-dih-bg py-24 px-4">
-        <div className="max-w-6xl mx-auto">
-            <div className="flex justify-between items-center mb-12">
-                <h1 className="text-4xl font-orbitron text-dih-secondary neon-text">
-                    THE GANG
-                </h1>
-                <button className="px-6 py-2 border border-dih-secondary/50 text-dih-secondary rounded-full hover:bg-dih-secondary hover:text-black transition-all font-space text-sm">
-                    + INVITE
-                </button>
-            </div>
+  if (loading || !user) return null;
 
-            {fetching ? (
-                 <div className="text-center font-space text-dih-fg/50 animate-pulse mt-20">SCANNING BIOMETRICS...</div>
-            ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {members.map((member, i) => (
-                        <motion.div
-                            key={member.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: i * 0.05 }}
-                        >
-                            <GlassCard className="flex flex-col items-center text-center group border-dih-white/5 hover:border-dih-secondary/30">
-                                <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-dih-secondary/20 mb-4 group-hover:scale-110 transition-transform duration-500 relative">
-                                    <img src={member.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${member.uid}`} className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-dih-secondary/10 mix-blend-overlay opacity-0 group-hover:opacity-100 transition-opacity" />
-                                </div>
-                                
-                                <h3 className="text-xl font-space text-white mb-1">{member.displayName || "Unknown Agent"}</h3>
-                                <p className="text-xs text-dih-fg/50 font-mono mb-4">{member.role === 'admin' ? 'ADMIN' : 'MEMBER'}</p>
-                                
-                                <div className="w-full border-t border-dih-white/10 pt-4 grid grid-cols-2 gap-2 text-xs font-mono text-dih-fg/70">
-                                    <div>
-                                        <p className="text-dih-white/30">JOINED</p>
-                                        <p>{member.joinedAt?.toDate().toLocaleDateString() || "Unknown"}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-dih-white/30">STATUS</p>
-                                        <p className="text-green-400">ONLINE</p>
-                                    </div>
-                                </div>
-                            </GlassCard>
-                        </motion.div>
-                    ))}
-                </div>
-            )}
-        </div>
+  return (
+    <div className="relative z-10">
+      <h1 className="font-[family-name:var(--font-display)] text-[32px] font-medium tracking-tight sm:text-4xl">
+        The gang
+      </h1>
+      <p className="mt-1 text-[15px] text-[#78716c]">
+        {members.length > 0 ? `${members.length} friend${members.length === 1 ? "" : "s"} in the album` : "Everyone with access to this album."}
+      </p>
+
+      <div className="mt-5">
+        {fetching ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+              <div key={i} className="card flex flex-col items-center p-6">
+                <Skeleton className="h-20 w-20 !rounded-full" />
+                <Skeleton className="mt-4 h-4 w-24 rounded-full" />
+                <Skeleton className="mt-2 h-3 w-16 rounded-full" />
+              </div>
+            ))}
+          </div>
+        ) : members.length === 0 ? (
+          <EmptyState title="Just you here for now" hint="As friends get approved, they’ll show up here." />
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {members.map((m) => (
+              <div key={m.id} className="card flex flex-col items-center p-6 text-center">
+                <Avatar src={m.photoURL} name={m.displayName || m.email} size={72} />
+                <h3 className="mt-3 max-w-full truncate text-[15px] font-semibold">
+                  {m.displayName || m.email?.split("@")[0] || "Friend"}
+                </h3>
+                <p className="mt-0.5 text-xs capitalize text-[#a8a29e]">
+                  {m.role || "member"}
+                  {m.joinedAt?.toDate ? ` · since ${m.joinedAt.toDate().toLocaleDateString(undefined, { month: "short", year: "numeric" })}` : ""}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

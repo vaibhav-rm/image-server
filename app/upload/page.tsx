@@ -2,305 +2,258 @@
 
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { useState, useCallback } from "react";
-import { motion } from "framer-motion";
-import GlassCard from "@/components/GlassCard";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { storage, db } from "@/firebase/config";
+import { db } from "@/firebase/config";
+
+/** Downscale images client-side so albums stay fast + storage stays small. */
+async function compressImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+  // Skip tiny files / gifs
+  if (file.size < 600 * 1024 || file.type.includes("gif")) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const max = 1920;
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1) return file;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob: Blob | null = await new Promise((res) =>
+      canvas.toBlob(res, "image/jpeg", 0.82)
+    );
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
+interface Pick {
+  file: File;
+  preview: string;
+  kind: "image" | "video";
+  progress: number;
+  done: boolean;
+  error?: string;
+}
 
 export default function UploadPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [dragActive, setDragActive] = useState(false);
-  
-  // Changed from single file to array
-  const [files, setFiles] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<{url: string, type: 'image' | 'video'}[]>([]);
-  
+  const [picks, setPicks] = useState<Pick[]>([]);
+  const [drag, setDrag] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
-  
-  // Metadata state
   const [eventName, setEventName] = useState("");
   const [caption, setCaption] = useState("");
-  const [tags, setTags] = useState("");
   const [people, setPeople] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  if (!loading && !user) {
-    router.push("/login");
-    return null;
-  }
+  useEffect(() => {
+    if (!loading && !user) router.push("/login");
+  }, [user, loading, router]);
 
-  const handleDrag = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
+  // Revoke object URLs on unmount
+  useEffect(() => {
+    return () => picks.forEach((p) => URL.revokeObjectURL(p.preview));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleFiles = (newFiles: FileList | null) => {
-    if (newFiles && newFiles.length > 0) {
-      const fileArray = Array.from(newFiles);
-      setFiles(prev => [...prev, ...fileArray]);
-      
-      const newPreviews = fileArray.map(file => ({
-        url: URL.createObjectURL(file),
-        type: file.type.startsWith("image") ? 'image' : 'video' as 'image' | 'video'
-      }));
-      setPreviews(prev => [...prev, ...newPreviews]);
-    }
-  };
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    handleFiles(e.dataTransfer.files);
+  const addFiles = useCallback((list: FileList | File[] | null) => {
+    if (!list) return;
+    const arr = Array.from(list).filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
+    if (arr.length === 0) return;
+    setPicks((prev) => [
+      ...prev,
+      ...arr.map((file) => ({
+        file,
+        preview: URL.createObjectURL(file),
+        kind: (file.type.startsWith("image") ? "image" : "video") as "image" | "video",
+        progress: 0,
+        done: false,
+      })),
+    ]);
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    e.preventDefault();
-    handleFiles(e.target.files);
-  };
+  const removeAt = (i: number) =>
+    setPicks((prev) => {
+      URL.revokeObjectURL(prev[i].preview);
+      return prev.filter((_, x) => x !== i);
+    });
 
-  const removeFile = (index: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
-    setPreviews(prev => prev.filter((_, i) => i !== index));
+  const uploadOne = async (p: Pick, i: number) => {
+    const file = await compressImage(p.file);
+    const form = new FormData();
+    form.append("file", file);
+    form.append("path", `memories/${user!.uid}/${Date.now()}_${file.name}`);
+
+    // Progress is simulated for the server route (fetch has no upload events);
+    // we tick it so the UI feels alive, then complete on response.
+    const tick = setInterval(() => {
+      setPicks((prev) =>
+        prev.map((x, xi) => (xi === i ? { ...x, progress: Math.min(90, x.progress + 12) } : x))
+      );
+    }, 250);
+
+    try {
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      if (!res.ok) throw new Error("upload failed");
+      const data = await res.json();
+      clearInterval(tick);
+      setPicks((prev) => prev.map((x, xi) => (xi === i ? { ...x, progress: 100, done: true } : x)));
+      return { url: data.url, path: data.path, type: file.type.startsWith("image") ? "image" : "video" };
+    } catch (e) {
+      clearInterval(tick);
+      setPicks((prev) => prev.map((x, xi) => (xi === i ? { ...x, error: "Failed — try again" } : x)));
+      throw e;
+    }
   };
 
   const handleUpload = async () => {
-    if (files.length === 0 || !user) return;
+    if (picks.length === 0 || !user || uploading) return;
     setUploading(true);
-
     try {
-      // 1. Upload All Files via Server API (Bypasses broken client permissions)
-      const uploadPromises = files.map(async (file) => {
-         const formData = new FormData();
-         formData.append("file", file);
-         formData.append("path", `memories/${user.uid}/${Date.now()}_${file.name}`);
-
-         const res = await fetch("/api/upload", {
-             method: "POST",
-             body: formData
-         });
-
-         if (!res.ok) throw new Error("Server upload failed");
-         
-         const data = await res.json();
-         return {
-             url: data.url,
-             type: file.type.startsWith("image") ? "image" : "video"
-         };
-      });
-
-      const uploadedMedia = await Promise.all(uploadPromises);
-
-      // 2. Save Metadata to Firestore (New Schema)
-      // Firestore usually works fine as it uses different auth path, checking...
+      // Upload 3 at a time so adding 50+ files doesn't stall or OOM
+      const results: Array<{ url: string; path: string; type: string }> = new Array(picks.length);
+      for (let s = 0; s < picks.length; s += 3) {
+        const batch = picks.slice(s, s + 3);
+        const out = await Promise.all(batch.map((p, b) => uploadOne(p, s + b)));
+        out.forEach((r, b) => (results[s + b] = r));
+      }
       await addDoc(collection(db, "memories"), {
-        eventName: eventName || "Untitled Event",
-        media: uploadedMedia as any,
-        // Legacy support
-        mediaUrl: uploadedMedia[0].url, 
-        mediaType: uploadedMedia[0].type,
-        
-        caption,
-        tags: tags.split(",").map(t => t.trim()).filter(Boolean),
-        people: people.split(",").map(p => p.trim()).filter(Boolean),
+        eventName: eventName.trim() || "Untitled moment",
+        media: results,
+        mediaUrl: results[0].url,
+        mediaType: results[0].type,
+        caption: caption.trim(),
+        tags: [],
+        people: people.split(",").map((t) => t.trim()).filter(Boolean),
         uploadedBy: user.uid,
         userEmail: user.email,
         createdAt: serverTimestamp(),
       });
-
-      // 3. Success Animation
+      router.push("/gallery");
+    } catch {
+      alert("Some uploads failed. The ones that worked are marked — remove the failed ones and try again.");
+    } finally {
       setUploading(false);
-      setShowSuccess(true);
-
-      setTimeout(() => {
-          router.push("/memories");
-      }, 2000);
-
-    } catch (error) {
-      console.error("Upload failed", error);
-      setUploading(false);
-      alert("Upload failed! Server permission issue.");
     }
   };
 
+  if (loading || !user) return null;
+
   return (
-    <div className="min-h-screen bg-dih-bg pt-24 px-4 pb-12 relative overflow-hidden">
-        {showSuccess && <ParticleBurst />}
-        
-        <div className="max-w-2xl mx-auto z-10 relative">
-            <h1 className="text-4xl font-orbitron text-dih-primary mb-8 text-center neon-text">
-                UPLOAD EVENT
-            </h1>
+    <div className="relative z-10 mx-auto max-w-2xl">
+      <h1 className="font-[family-name:var(--font-display)] text-[32px] font-medium tracking-tight sm:text-4xl">
+        Add to the album
+      </h1>
+      <p className="mt-1 text-[15px] text-[#78716c]">
+        Drop in as many photos and videos as you want — they’ll compress and upload in the background.
+      </p>
 
-            <GlassCard className="p-8">
-                {/* Drag & Drop Zone */}
-                <div 
-                    className={`relative border-2 border-dashed rounded-xl min-h-[160px] flex flex-col items-center justify-center transition-colors duration-300 p-4
-                    ${dragActive ? 'border-dih-accent bg-dih-accent/10' : 'border-dih-fg/20 hover:border-dih-primary'}`}
-                    onDragEnter={handleDrag}
-                    onDragLeave={handleDrag}
-                    onDragOver={handleDrag}
-                    onDrop={handleDrop}
-                >
-                    <input 
-                        type="file" 
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
-                        onChange={handleChange}
-                        accept="image/*,video/*"
-                        multiple // Enable multiple files
-                    />
-                    
-                    {previews.length > 0 ? (
-                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-4 w-full relative z-10 pointer-events-none">
-                             {/* Preview Grid */}
-                             {previews.map((preview, idx) => (
-                                 <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-dih-white/20 group pointer-events-auto">
-                                     {preview.type === 'video' ? (
-                                         <video src={preview.url} className="w-full h-full object-cover" />
-                                     ) : (
-                                         <img src={preview.url} alt={`Preview ${idx}`} className="w-full h-full object-cover" />
-                                     )}
-                                     <button
-                                        onClick={(e) => {
-                                            e.preventDefault();
-                                            removeFile(idx);
-                                        }}
-                                        className="absolute top-1 right-1 bg-red-500/80 text-white w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
-                                     >
-                                         ×
-                                     </button>
-                                 </div>
-                             ))}
-                             {/* Add More Placeholder */}
-                             <div className="aspect-square flex flex-col items-center justify-center border-2 border-dashed border-dih-white/10 rounded-lg text-dih-white/30 bg-dih-white/5">
-                                 <span className="text-2xl">+</span>
-                                 <span className="text-xs">Add</span>
-                             </div>
-                        </div>
-                    ) : (
-                        <div className="text-center pointer-events-none">
-                            <p className="text-dih-fg/60 font-space mb-2">DRAG & DROP OR CLICK</p>
-                            <p className="text-xs text-dih-fg/30 font-inter">Supports Multiple Images & Videos</p>
-                        </div>
-                    )}
-                </div>
-
-                {/* Metadata Form */}
-                <div className="mt-8 space-y-6">
-                    <div>
-                        <label className="block text-dih-primary font-space text-sm mb-2">EVENT NAME</label>
-                        <input 
-                            type="text" 
-                            className="w-full bg-dih-bg/50 border border-dih-white/10 rounded-lg p-3 text-dih-fg focus:outline-none focus:border-dih-primary transition-colors"
-                            placeholder="e.g., Backchodi 2025"
-                            value={eventName}
-                            onChange={(e) => setEventName(e.target.value)}
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-dih-fg/80 font-space text-sm mb-2">CAPTION / DESCRIPTION</label>
-                        <input 
-                            type="text" 
-                            className="w-full bg-dih-bg/50 border border-dih-white/10 rounded-lg p-3 text-dih-fg focus:outline-none focus:border-dih-primary transition-colors"
-                            placeholder="What happened?"
-                            value={caption}
-                            onChange={(e) => setCaption(e.target.value)}
-                        />
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-dih-secondary font-space text-sm mb-2">INSIDE JOKES (TAGS)</label>
-                            <input 
-                                type="text" 
-                                className="w-full bg-dih-bg/50 border border-dih-white/10 rounded-lg p-3 text-dih-fg focus:outline-none focus:border-dih-secondary transition-colors"
-                                placeholder="Comma separated"
-                                value={tags}
-                                onChange={(e) => setTags(e.target.value)}
-                            />
-                        </div>
-                        <div>
-                             <label className="block text-dih-accent font-space text-sm mb-2">WHO WAS THERE?</label>
-                            <input 
-                                type="text" 
-                                className="w-full bg-dih-bg/50 border border-dih-white/10 rounded-lg p-3 text-dih-fg focus:outline-none focus:border-dih-accent transition-colors"
-                                placeholder="Comma separated"
-                                value={people}
-                                onChange={(e) => setPeople(e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        disabled={files.length === 0 || uploading}
-                        onClick={handleUpload}
-                        className={`w-full py-4 rounded-xl font-bold font-orbitron tracking-widest transition-all shadow-[0_0_20px_rgba(0,0,0,0.3)]
-                            ${files.length === 0 || uploading 
-                                ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
-                                : 'bg-gradient-to-r from-dih-primary via-dih-secondary to-dih-primary bg-[length:200%_auto] animate-gradient text-black hover:shadow-[0_0_30px_rgba(0,255,255,0.4)]'
-                            }
-                        `}
-                    >
-                        {uploading ? `UPLOADING ${files.length} FILES...` : "UPLOAD EVENT MEMORY"}
-                    </motion.button>
-                </div>
-            </GlassCard>
+      <div className="card mt-5 p-5 sm:p-6">
+        <div
+          onDragEnter={(e) => { e.preventDefault(); setDrag(true); }}
+          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+          onDragLeave={() => setDrag(false)}
+          onDrop={(e) => { e.preventDefault(); setDrag(false); addFiles(e.dataTransfer.files); }}
+          onClick={() => inputRef.current?.click()}
+          className={`cursor-pointer rounded-2xl border-2 border-dashed p-6 text-center transition-colors ${
+            drag ? "border-[#b4540a] bg-[#fef0e2]" : "border-[#e8e1d5] bg-[#faf8f4] hover:border-[#1c1917]/30"
+          }`}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
+          />
+          <p className="font-medium">Drag photos here, or tap to browse</p>
+          <p className="mt-1 text-sm text-[#a8a29e]">Images get auto-compressed · videos upload as-is</p>
         </div>
+
+        {picks.length > 0 && (
+          <div className="mt-4 grid grid-cols-3 gap-2.5 sm:grid-cols-4">
+            {picks.map((p, i) => (
+              <div key={i} className="relative aspect-square overflow-hidden rounded-xl border border-[#e8e1d5] bg-[#f3efe7]">
+                {p.kind === "video" ? (
+                  <video src={p.preview} muted playsInline className="h-full w-full object-cover" />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.preview} alt="" className="h-full w-full object-cover" />
+                )}
+                {!p.done && p.progress > 0 && (
+                  <div className="absolute inset-x-0 bottom-0 h-1 bg-black/20">
+                    <div className="h-full bg-[#b4540a] transition-all" style={{ width: `${p.progress}%` }} />
+                  </div>
+                )}
+                {p.done && (
+                  <span className="absolute left-1.5 top-1.5 rounded-full bg-green-700 px-2 py-0.5 text-[10px] font-semibold text-white">
+                    Done
+                  </span>
+                )}
+                {p.error && (
+                  <span className="absolute inset-x-1.5 bottom-1.5 rounded-lg bg-red-700/90 px-2 py-1 text-center text-[10px] font-semibold text-white">
+                    {p.error}
+                  </span>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); removeAt(i); }}
+                  className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-sm text-white hover:bg-black"
+                  aria-label="Remove"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-5 space-y-4">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">What was this?</label>
+            <input
+              value={eventName}
+              onChange={(e) => setEventName(e.target.value)}
+              placeholder="e.g. Goa weekend, Diwali at home"
+              className="w-full rounded-xl border border-[#e8e1d5] bg-white px-4 py-3 text-[15px] outline-none focus:border-[#1c1917]/40"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">A line about it <span className="font-normal text-[#a8a29e]">(optional)</span></label>
+            <textarea
+              value={caption}
+              onChange={(e) => setCaption(e.target.value)}
+              placeholder="The story behind these…"
+              rows={2}
+              className="w-full resize-none rounded-xl border border-[#e8e1d5] bg-white px-4 py-3 text-[15px] outline-none focus:border-[#1c1917]/40"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">Who was there? <span className="font-normal text-[#a8a29e]">(comma separated)</span></label>
+            <input
+              value={people}
+              onChange={(e) => setPeople(e.target.value)}
+              placeholder="Aarav, Meera, Kabir"
+              className="w-full rounded-xl border border-[#e8e1d5] bg-white px-4 py-3 text-[15px] outline-none focus:border-[#1c1917]/40"
+            />
+          </div>
+
+          <button
+            onClick={handleUpload}
+            disabled={picks.length === 0 || uploading}
+            className="w-full rounded-full bg-[#1c1917] py-4 text-[15px] font-semibold text-white transition-all hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
+          >
+            {uploading ? `Uploading ${picks.length} file${picks.length > 1 ? "s" : ""}…` : `Share ${picks.length > 0 ? picks.length + " " : ""}memory${picks.length === 1 ? "" : "ies"}`}
+          </button>
+          <p className="text-center text-xs text-[#a8a29e]">Large batches upload 3 at a time so nothing crashes.</p>
+        </div>
+      </div>
     </div>
   );
-}
-
-const ParticleBurst = () => {
-    // Basic particle burst effect
-    const particles = Array.from({ length: 20 });
-    return (
-        <div className="fixed inset-0 pointer-events-none flex items-center justify-center z-50">
-            {particles.map((_, i) => (
-                <Particle key={i} index={i} />
-            ))}
-            <motion.div 
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: [0, 1.5, 2], opacity: [0, 1, 0] }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
-                className="absolute text-dih-accent font-orbitron font-bold text-4xl neon-text"
-            >
-                MEMORY SECURED
-            </motion.div>
-        </div>
-    );
-};
-
-const Particle = ({ index }: { index: number }) => {
-    const angle = (index / 20) * 360;
-    const distance = 300 + Math.random() * 200;
-    const x = Math.cos(angle * (Math.PI / 180)) * distance;
-    const y = Math.sin(angle * (Math.PI / 180)) * distance;
-    
-    return (
-        <motion.div
-            className="absolute w-2 h-2 bg-dih-primary rounded-full shadow-[0_0_10px_#00ffff]"
-            initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
-            animate={{ 
-                x: x, 
-                y: y, 
-                opacity: 0,
-                scale: 0 
-            }}
-            transition={{ 
-                duration: 1 + Math.random(), 
-                ease: "easeOut" 
-            }}
-        />
-    )
 }

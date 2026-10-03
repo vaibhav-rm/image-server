@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Orbitron, Space_Grotesk } from "next/font/google";
+import { Fraunces, Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { AuthContextProvider } from "@/context/AuthContext";
 import Navbar from "@/components/Navbar";
@@ -7,23 +7,20 @@ import PageWrapper from "@/components/PageWrapper";
 import "./globals.css";
 
 const inter = Inter({
-  variable: "--font-inter",
+  variable: "--font-sans",
   subsets: ["latin"],
+  display: "swap",
 });
 
-const orbitron = Orbitron({
-  variable: "--font-orbitron",
+const fraunces = Fraunces({
+  variable: "--font-display",
   subsets: ["latin"],
-});
-
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-space",
-  subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Dih Pics",
-  description: "A place where gang's memories are stored",
+  title: "dih pics — our album",
+  description: "A quiet little corner for the gang's photos and videos.",
 };
 
 export default function RootLayout({
@@ -34,15 +31,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${inter.variable} ${orbitron.variable} ${spaceGrotesk.variable} antialiased bg-dih-bg text-dih-fg selection:bg-dih-primary selection:text-black`}
+        className={`${inter.variable} ${fraunces.variable} antialiased bg-[#faf8f4] text-[#1c1917] paper-grain`}
       >
-          <AuthContextProvider>
-             <Navbar />
-             <PageWrapper>
-                {children}
-             </PageWrapper>
-          </AuthContextProvider>
-          <Analytics />
+        <AuthContextProvider>
+          <Navbar />
+          <PageWrapper>{children}</PageWrapper>
+        </AuthContextProvider>
+          <Analytics debug={false} />
       </body>
     </html>
   );

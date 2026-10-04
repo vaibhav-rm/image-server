@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui";
+import { uploadWithRetry } from "@/lib/upload";
 
 async function shrinkAvatar(file: File): Promise<File> {
   try {
@@ -65,15 +66,13 @@ export default function SettingsPage() {
     setError(null);
     try {
       const small = await shrinkAvatar(f);
-      const form = new FormData();
-      form.append("file", small);
-      form.append("path", `avatars/${user.uid}/${Date.now()}_avatar.jpg`);
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      if (!res.ok) throw new Error("upload failed");
-      const data = await res.json();
-      setPhoto(data.url);
-    } catch {
-      setError("Couldn't upload that photo — try a different one.");
+      const up = await uploadWithRetry(
+        small,
+        `avatars/${user.uid}/${Date.now()}_avatar.jpg`
+      );
+      setPhoto(up.url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't upload that photo — try a different one.");
     } finally {
       setUploading(false);
     }

@@ -1,8 +1,18 @@
 rules_version = '2';
+
+// Locked-down rules for dih-pics.
+//
+// This app reads via download-token URLs (?alt=media&token=...) and writes
+// via short-lived signed URLs minted by /api/upload/sign — both bypass
+// security rules by design, so browsers need ZERO direct bucket access.
+//
+// Deliberately NOT `request.auth != null`: that would let literally any
+// Google account with a token list, overwrite, or delete your files.
+// Default-deny here breaks nothing in the app.
 service firebase.storage {
   match /b/{bucket}/o {
     match /{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

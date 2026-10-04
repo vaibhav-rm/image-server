@@ -17,6 +17,8 @@ export const EXT_MIME: Record<string, string> = {
   ogg: "video/ogg",
   mkv: "video/x-matroska",
   avi: "video/x-msvideo",
+  "3gp": "video/3gpp",
+  "3g2": "video/3gpp2",
 };
 
 export function extOf(name?: string): string {

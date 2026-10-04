@@ -7,8 +7,9 @@ import { collection, addDoc, serverTimestamp, query, orderBy, getDocs, limit } f
 import { db } from "@/firebase/config";
 import { Avatar } from "@/components/ui";
 import { extOf } from "@/lib/mime";
+import { uploadWithRetry } from "@/lib/upload";
 
-const VIDEO_EXTS = new Set(["mp4", "m4v", "mov", "webm", "ogv", "ogg", "mkv", "avi"]);
+const VIDEO_EXTS = new Set(["mp4", "m4v", "mov", "webm", "ogv", "ogg", "mkv", "avi", "3gp", "3g2"]);
 const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "heif"]);
 
 function kindOf(file: File): "image" | "video" | null {
@@ -223,27 +224,19 @@ export default function UploadPage() {
       return prev.filter((_, x) => x !== i);
     });
 
-  const uploadFile = async (file: File, path: string) => {
-    const form = new FormData();
-    form.append("file", file);
-    form.append("path", path);
-    const res = await fetch("/api/upload", { method: "POST", body: form });
-    if (!res.ok) throw new Error("upload failed");
-    return res.json() as Promise<{ url: string; path: string; type: string }>;
-  };
+  // Successful uploads, keyed by pick index — survives retries so a
+  // second attempt only re-sends what actually failed.
+  const resultsRef = useRef<
+    Map<number, { url: string; path: string; type: string; poster?: string; posterPath?: string }>
+  >(new Map());
+
+  const setProgress = (i: number, progress: number) =>
+    setPicks((prev) => prev.map((x, xi) => (xi === i ? { ...x, progress } : x)));
 
   const uploadOne = async (p: Pick, i: number) => {
     const file = await compressImage(p.file);
     const isVideo = p.kind === "video";
     const base = `memories/${user!.uid}/${Date.now()}_${i}_${file.name}`;
-
-    // Progress is simulated for the server route (fetch has no upload events);
-    // we tick it so the UI feels alive, then complete on response.
-    const tick = setInterval(() => {
-      setPicks((prev) =>
-        prev.map((x, xi) => (xi === i ? { ...x, progress: Math.min(90, x.progress + 12) } : x))
-      );
-    }, 250);
 
     try {
       // Videos: capture + upload a tiny poster first so grids never
@@ -254,7 +247,10 @@ export default function UploadPage() {
         try {
           const posterFile = await capturePoster(p.file);
           if (posterFile) {
-            const up = await uploadFile(posterFile, `posters/${user!.uid}/${Date.now()}_${i}_poster.jpg`);
+            const up = await uploadWithRetry(
+              posterFile,
+              `posters/${user!.uid}/${Date.now()}_${i}_poster.jpg`
+            );
             poster = up.url;
             posterPath = up.path;
           }
@@ -263,57 +259,93 @@ export default function UploadPage() {
         }
       }
 
-      const data = await uploadFile(file, base);
-      clearInterval(tick);
-      setPicks((prev) => prev.map((x, xi) => (xi === i ? { ...x, progress: 100, done: true } : x)));
-      return {
+      const data = await uploadWithRetry(file, base, (pct) => setProgress(i, pct));
+      setPicks((prev) =>
+        prev.map((x, xi) =>
+          xi === i ? { ...x, progress: 100, done: true, error: undefined } : x
+        )
+      );
+      const result = {
         url: data.url,
         path: data.path,
-        type: isVideo ? "video" : "image",
+        type: isVideo ? "video" : data.type,
         ...(poster ? { poster, posterPath } : {}),
       };
+      resultsRef.current.set(i, result);
+      return result;
     } catch (e) {
-      clearInterval(tick);
-      setPicks((prev) => prev.map((x, xi) => (xi === i ? { ...x, error: "Failed — try again" } : x)));
+      const msg = e instanceof Error ? e.message : "Upload failed";
+      setPicks((prev) => prev.map((x, xi) => (xi === i ? { ...x, error: msg } : x)));
       throw e;
     }
   };
+
+  const saveMemoryDoc = async () => {
+    const results = picks.map((_, i) => resultsRef.current.get(i));
+    if (results.some((r) => !r) || !user) return false;
+    const done = results as NonNullable<(typeof results)[number]>[];
+    await addDoc(collection(db, "memories"), {
+      eventName: eventName.trim() || "Untitled moment",
+      media: done,
+      mediaUrl: done[0].url,
+      mediaType: done[0].type,
+      caption: caption.trim(),
+      tags: [],
+      people: Array.from(
+        new Set([
+          ...selectedPeople,
+          ...extraPeople
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean),
+        ])
+      ),
+      uploadedBy: user.uid,
+      userEmail: user.email,
+      createdAt: serverTimestamp(),
+    });
+    return true;
+  };
+
+  const runPending = async (indices: number[]) => {
+    // 3 at a time so weak phone radios aren't choked.
+    for (let s = 0; s < indices.length; s += 3) {
+      const batch = indices.slice(s, s + 3);
+      await Promise.allSettled(batch.map((i) => uploadOne(picks[i], i)));
+    }
+  };
+
+  const failedCount = picks.filter((p) => p.error && !p.done).length;
 
   const handleUpload = async () => {
     if (picks.length === 0 || !user || uploading) return;
     setUploading(true);
     try {
-      // Upload 3 at a time so adding 50+ files doesn't stall or OOM
-      const results: Array<{ url: string; path: string; type: string; poster?: string; posterPath?: string }> =
-        new Array(picks.length);
-      for (let s = 0; s < picks.length; s += 3) {
-        const batch = picks.slice(s, s + 3);
-        const out = await Promise.all(batch.map((p, b) => uploadOne(p, s + b)));
-        out.forEach((r, b) => (results[s + b] = r));
+      const pending = picks.map((_, i) => i).filter((i) => !resultsRef.current.has(i));
+      await runPending(pending);
+      if (await saveMemoryDoc()) {
+        router.push("/gallery");
       }
-      await addDoc(collection(db, "memories"), {
-        eventName: eventName.trim() || "Untitled moment",
-        media: results,
-        mediaUrl: results[0].url,
-        mediaType: results[0].type,
-        caption: caption.trim(),
-        tags: [],
-        people: Array.from(
-          new Set([
-            ...selectedPeople,
-            ...extraPeople
-              .split(",")
-              .map((t) => t.trim())
-              .filter(Boolean),
-          ])
-        ),
-        uploadedBy: user.uid,
-        userEmail: user.email,
-        createdAt: serverTimestamp(),
-      });
-      router.push("/gallery");
-    } catch {
-      alert("Some uploads failed. The ones that worked are marked — remove the failed ones and try again.");
+      // else: failures remain — inline retry button appears, no alert popup
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const retryFailed = async () => {
+    if (!user || uploading) return;
+    setUploading(true);
+    try {
+      const failed = picks
+        .map((p, i) => ({ p, i }))
+        .filter(({ p, i }) => p.error && !resultsRef.current.has(i))
+        .map(({ i }) => i);
+      // clear old errors before re-trying
+      setPicks((prev) => prev.map((x) => ({ ...x, error: undefined })));
+      await runPending(failed);
+      if (await saveMemoryDoc()) {
+        router.push("/gallery");
+      }
     } finally {
       setUploading(false);
     }
@@ -381,7 +413,10 @@ export default function UploadPage() {
                   </span>
                 )}
                 {p.error && (
-                  <span className="absolute inset-x-1.5 bottom-1.5 rounded-lg bg-red-700/90 px-2 py-1 text-center text-[10px] font-semibold text-white">
+                  <span
+                    title={p.error}
+                    className="absolute inset-x-1.5 bottom-1.5 truncate rounded-lg bg-red-700/90 px-2 py-1 text-center text-[10px] font-semibold text-white"
+                  >
                     {p.error}
                   </span>
                 )}
@@ -478,6 +513,23 @@ export default function UploadPage() {
             )}
           </div>
 
+          {failedCount > 0 && !uploading && (
+            <div className="rounded-2xl bg-red-50 p-4 text-sm">
+              <p className="font-semibold text-red-800">
+                {failedCount} file{failedCount > 1 ? "s" : ""} didn’t make it
+              </p>
+              <p className="mt-0.5 text-red-700/80">
+                Usually a shaky connection — your finished uploads are safe.
+              </p>
+              <button
+                onClick={retryFailed}
+                className="mt-3 rounded-full bg-red-800 px-5 py-2.5 text-sm font-semibold text-white"
+              >
+                Retry {failedCount > 1 ? `those ${failedCount}` : "it"}
+              </button>
+            </div>
+          )}
+
           <button
             onClick={handleUpload}
             disabled={picks.length === 0 || uploading}
@@ -485,7 +537,7 @@ export default function UploadPage() {
           >
             {uploading ? `Uploading ${picks.length} file${picks.length > 1 ? "s" : ""}…` : `Share ${picks.length > 0 ? picks.length + " " : ""}memory${picks.length === 1 ? "" : "ies"}`}
           </button>
-          <p className="text-center text-xs text-[#a8a29e]">Large batches upload 3 at a time so nothing crashes.</p>
+          <p className="text-center text-xs text-[#a8a29e]">Straight to storage with real progress — 3 at a time.</p>
         </div>
       </div>
     </div>

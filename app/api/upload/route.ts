@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { adminStorage } from "@/lib/firebase-admin";
+import { sniffMime } from "@/lib/mime";
 
 /**
  * Uploads a file with the Admin SDK and returns a short, stable
@@ -25,10 +26,13 @@ export async function POST(request: NextRequest) {
         const bucket = adminStorage.bucket();
         const fileRef = bucket.file(path);
         const token = randomUUID();
+        // Phones often send empty/generic types — infer from the
+        // filename so browsers get a playable content type.
+        const contentType = sniffMime(file.type, file.name);
 
         await fileRef.save(buffer, {
             metadata: {
-                contentType: file.type || "application/octet-stream",
+                contentType,
                 metadata: {
                     firebaseStorageDownloadTokens: token,
                 },
@@ -40,7 +44,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
             url,
             path,
-            type: file.type.startsWith("image") ? "image" : "video",
+            type: contentType.startsWith("image") ? "image" : "video",
         });
     } catch (error: any) {
         console.error("Upload error:", error);

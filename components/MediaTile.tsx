@@ -29,7 +29,12 @@ export const MediaTile = memo(function MediaTile({
     >
       <div className={tall ? "aspect-[3/4]" : "aspect-[4/3]"}>
         {first.type === "video" ? (
-          <SmartVideo src={first.url} eager={eager} />
+          <SmartVideo
+            src={first.url}
+            poster={first.poster}
+            alt={memory.caption || memory.eventName || "Video"}
+            eager={eager}
+          />
         ) : (
           <SmartImage
             src={first.url}

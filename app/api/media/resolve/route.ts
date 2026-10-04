@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { adminStorage } from "@/lib/firebase-admin";
+import { isGenericMime, mimeForFilename } from "@/lib/mime";
 
 /**
  * Resolves any stored media URL to a short, stable Firebase
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
 
     if (isTokenUrl(stored)) {
         return NextResponse.json(
-            { url: stored },
+            { url: stored, upgraded: true },
             { headers: { "Cache-Control": "public, max-age=31536000, immutable" } }
         );
     }
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
     const parsed = parseStoredUrl(stored);
     if (!parsed) {
         // Unknown shape — let the client try the original URL.
-        return NextResponse.json({ url: stored });
+        return NextResponse.json({ url: stored, upgraded: false });
     }
 
     try {
@@ -74,11 +75,23 @@ export async function GET(request: NextRequest) {
             ?.firebaseStorageDownloadTokens?.split(",")[0];
 
         let token = existing;
+        const patch: { metadata?: Record<string, string>; contentType?: string } = {};
+
         if (!token) {
             token = randomUUID();
-            await file.setMetadata({
-                metadata: { firebaseStorageDownloadTokens: token },
-            });
+            patch.metadata = { firebaseStorageDownloadTokens: token };
+        }
+
+        // Repair wrong content types (e.g. application/octet-stream on a
+        // .mp4): browsers — Firefox especially — refuse to play those.
+        // Only overwrites generic/unknown types, never a specific one.
+        const implied = mimeForFilename(parsed.path);
+        if (implied && isGenericMime(meta.contentType)) {
+            patch.contentType = implied;
+        }
+
+        if (patch.metadata || patch.contentType) {
+            await file.setMetadata(patch);
         }
 
         const url =
@@ -86,12 +99,12 @@ export async function GET(request: NextRequest) {
             `/o/${encodeURIComponent(parsed.path)}?alt=media&token=${token}`;
 
         return NextResponse.json(
-            { url },
+            { url, upgraded: true },
             { headers: { "Cache-Control": "public, max-age=86400" } }
         );
     } catch (error: any) {
         console.error("Media resolve error:", error?.message);
         // Fall back to the original URL rather than breaking the tile.
-        return NextResponse.json({ url: stored });
+        return NextResponse.json({ url: stored, upgraded: false });
     }
 }

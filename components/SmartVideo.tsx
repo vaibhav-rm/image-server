@@ -1,20 +1,27 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
+import { SmartImage } from "./SmartImage";
 import { useMediaUrl } from "@/hooks/useMediaUrl";
 import { cn } from "@/lib/media";
 
 /**
- * Grid-friendly video: never preloads until visible, never autoplays
- * in grids, pauses when scrolled away. Tap to play inline.
- * Legacy signed URLs are transparently upgraded to token URLs.
+ * Grid-friendly video tile.
+ * - With a poster (all new uploads): shows a lightweight JPEG, zero
+ *   video bytes downloaded. Tap navigates to the detail view.
+ * - Legacy videos without posters: loads metadata for a first-frame
+ *   preview, pauses when scrolled away. Tap toggles inline playback.
  */
 export const SmartVideo = memo(function SmartVideo({
   src,
+  poster,
+  alt = "Video",
   className,
   eager = false,
 }: {
   src: string;
+  poster?: string;
+  alt?: string;
   className?: string;
   eager?: boolean;
 }) {
@@ -25,7 +32,7 @@ export const SmartVideo = memo(function SmartVideo({
   const resolved = useMediaUrl(src);
 
   useEffect(() => {
-    if (eager) return;
+    if (eager || poster) return;
     const el = wrapRef.current;
     if (!el) return;
     const obs = new IntersectionObserver(
@@ -41,7 +48,24 @@ export const SmartVideo = memo(function SmartVideo({
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [eager]);
+  }, [eager, poster]);
+
+  // Poster path: no <video> element at all — cheapest possible tile.
+  if (poster) {
+    return (
+      <div className={cn("relative h-full w-full bg-[#1c1917]", className)}>
+        <SmartImage src={poster} alt={alt} eager={eager} />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/90 shadow-lg">
+            <span className="ml-0.5 inline-block h-0 w-0 border-y-[7px] border-l-[11px] border-y-transparent border-l-[#1c1917]" />
+          </span>
+        </div>
+        <span className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white">
+          Video
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div ref={wrapRef} className={cn("relative h-full w-full bg-[#1c1917]", className)}>

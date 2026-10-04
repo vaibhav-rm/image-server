@@ -84,7 +84,11 @@ export default function MemoriesPage() {
                       >
                         <div className="aspect-video w-full">
                           {first.type === "video" ? (
-                            <SmartVideo src={first.url} />
+                            <SmartVideo
+                              src={first.url}
+                              poster={first.poster}
+                              alt={m.caption || m.eventName || "Memory"}
+                            />
                           ) : (
                             <SmartImage
                               src={first.url}

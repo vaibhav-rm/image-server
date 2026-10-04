@@ -68,7 +68,12 @@ export default function HomePage() {
               <div className="grid md:grid-cols-5">
                 <div className="relative min-h-[260px] sm:min-h-[320px] md:col-span-3 md:min-h-[420px]">
                   {heroMedia.type === "video" ? (
-                    <SmartVideo src={heroMedia.url} eager />
+                    <SmartVideo
+                      src={heroMedia.url}
+                      poster={heroMedia.poster}
+                      alt={hero.caption || hero.eventName || "Latest memory"}
+                      eager
+                    />
                   ) : (
                     <SmartImage
                       src={heroMedia.url}

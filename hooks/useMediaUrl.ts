@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 
 const memCache = new Map<string, string>();
-const LS_KEY = "dih-media-urls-v1";
+// v2: v1 cached failed upgrades (url === stored) permanently, so fixed
+// files could never upgrade. v2 only caches real upgrades.
+const LS_KEY = "dih-media-urls-v2";
 
 function readLS(): Record<string, string> {
   try {
@@ -29,6 +31,11 @@ let hydrated = false;
 function hydrate() {
   if (hydrated || typeof window === "undefined") return;
   hydrated = true;
+  try {
+    localStorage.removeItem("dih-media-urls-v1"); // poisoned cache, see above
+  } catch {
+    /* ignore */
+  }
   const saved = readLS();
   for (const [k, v] of Object.entries(saved)) memCache.set(k, v);
 }
@@ -77,8 +84,12 @@ export function useMediaUrl(stored?: string): string {
         if (!alive) return;
         const resolved = d?.url;
         if (resolved && typeof resolved === "string") {
-          memCache.set(stored, resolved);
-          writeLS({ ...readLS(), [stored]: resolved });
+          // Only cache real upgrades — a failed upgrade returns the
+          // original URL and must be retried next visit.
+          if (d?.upgraded && resolved !== stored) {
+            memCache.set(stored, resolved);
+            writeLS({ ...readLS(), [stored]: resolved });
+          }
           setUrl(resolved);
         }
       })

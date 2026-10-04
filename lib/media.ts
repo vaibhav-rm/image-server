@@ -4,6 +4,9 @@ export interface MediaItem {
   url: string;
   type: MediaKind;
   path?: string;
+  /** Lightweight thumbnail for videos (captured at upload). */
+  poster?: string;
+  posterPath?: string;
 }
 
 export interface MemoryDoc {
@@ -35,6 +38,8 @@ export function getMediaList(doc: Record<string, unknown>): MediaItem[] {
         url: m.url as string,
         type: m.type === "video" ? "video" : "image",
         path: (m as { path?: string }).path,
+        poster: (m as { poster?: string }).poster,
+        posterPath: (m as { posterPath?: string }).posterPath,
       }));
   }
   if (raw.mediaUrl) {

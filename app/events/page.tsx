@@ -20,7 +20,7 @@ export default function EventsPage() {
   }, [user, loading, router]);
 
   const events = useMemo(() => {
-    const map = new Map<string, { name: string; count: number; cover: { url: string; type: string }; date: Date; id: string }>();
+    const map = new Map<string, { name: string; count: number; cover: { url: string; type: string; poster?: string }; date: Date; id: string }>();
     for (const m of items) {
       const name = (m.eventName || "Untitled").trim() || "Untitled";
       const key = name.toLowerCase();
@@ -91,7 +91,7 @@ export default function EventsPage() {
                 >
                   <div className="relative h-48">
                     {e.cover.type === "video" ? (
-                      <SmartVideo src={e.cover.url} />
+                      <SmartVideo src={e.cover.url} poster={e.cover.poster} alt={e.name} />
                     ) : (
                       <SmartImage src={e.cover.url} alt={e.name} sizes="(max-width: 768px) 100vw, 33vw" />
                     )}

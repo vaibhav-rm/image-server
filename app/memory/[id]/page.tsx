@@ -25,11 +25,12 @@ function Thumb({
   active,
   onSelect,
 }: {
-  item: { url: string; type: string };
+  item: { url: string; type: string; poster?: string };
   active: boolean;
   onSelect: () => void;
 }) {
   const src = useMediaUrl(item.url);
+  const posterSrc = useMediaUrl(item.poster);
   return (
     <button
       onClick={onSelect}
@@ -40,12 +41,69 @@ function Thumb({
       }`}
     >
       {item.type === "video" ? (
-        <video src={src} preload="metadata" muted className="h-full w-full object-cover" />
+        posterSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={posterSrc} alt="" loading="lazy" className="h-full w-full object-cover" />
+        ) : (
+          <video src={src} preload="none" muted className="h-full w-full object-cover" />
+        )
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" />
       )}
     </button>
+  );
+}
+
+/** Main video player: poster first, and if the browser can't play the
+ *  file (wrong codec/container), swaps to a download affordance
+ *  instead of a dead player. */
+function VideoPlayer({ src, poster }: { src: string; poster?: string }) {
+  const [failed, setFailed] = useState(false);
+  const posterSrc = useMediaUrl(poster);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  if (failed) {
+    return (
+      <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 bg-[#1c1917] p-8 text-center">
+        {posterSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={posterSrc} alt="" className="max-h-48 rounded-xl opacity-80" />
+        ) : (
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 text-2xl text-white">
+            ▸
+          </span>
+        )}
+        <p className="max-w-xs text-sm leading-relaxed text-white/70">
+          This video won’t play in this browser (usually an iPhone format).
+          Open the original file instead — your phone will play it fine.
+        </p>
+        <a
+          href={src}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-[#1c1917]"
+        >
+          Open original
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <video
+      key={src}
+      src={src}
+      poster={posterSrc || undefined}
+      controls
+      playsInline
+      preload="metadata"
+      onError={() => setFailed(true)}
+      className="max-h-[70vh] w-full object-contain"
+    />
   );
 }
 
@@ -104,7 +162,7 @@ export default function SingleMemoryPage({
     });
   };
 
-  const mediaList: Array<{ url: string; type: string }> =
+  const mediaList: Array<{ url: string; type: string; poster?: string }> =
     memory?.media || (memory ? [{ url: memory.mediaUrl, type: memory.mediaType }] : []);
   const current = mediaList[index] || mediaList[0];
   const currentSrc = useMediaUrl(current?.url);
@@ -138,14 +196,7 @@ export default function SingleMemoryPage({
         <div className="lg:col-span-2">
           <div className="overflow-hidden rounded-[20px] border border-[#e8e1d5] bg-black">
             {current?.type === "video" ? (
-              <video
-                key={currentSrc}
-                src={currentSrc}
-                controls
-                playsInline
-                preload="metadata"
-                className="max-h-[70vh] w-full object-contain"
-              />
+              <VideoPlayer src={currentSrc} poster={current?.poster} />
             ) : (
               <div className="relative max-h-[70vh] min-h-[320px] w-full">
                 {currentSrc && (
